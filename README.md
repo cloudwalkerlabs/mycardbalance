@@ -31,5 +31,27 @@ Wallet, and adding an Xcode host app.
 
 ```sh
 ./gradlew :shared:jvmTest                  # unit + database tests (real bundled SQLite)
-./gradlew :androidApp:installDebug         # install on a connected device/emulator
+./gradlew :androidApp:installDebug         # install a debug build (dev.fanchao.mycardbalance.debug)
 ```
+
+Local builds are version `dev` (code 1). A local `assembleRelease` is unsigned unless the signing
+variables below are set.
+
+## Releases
+
+Publishing a GitHub release runs `.github/workflows/release.yml`, which builds a signed release APK
+and attaches it (with the R8 mapping file) to the release.
+
+- **Version name** is the release's name (its tag if the name is empty), passed as `VERSION_NAME`.
+- **Version code** is the release's publish time as a Unix timestamp, passed as `VERSION_CODE`. It
+  only ever increases, and stays under Android's 2,100,000,000 limit until 2036.
+- **Signing** uses the `cloudwalkerlabs` org secrets `ANDROID_KEYSTORE_BASE64`,
+  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. Gradle reads the
+  decoded keystore from `ANDROID_KEYSTORE_PATH`.
+
+To try the pipeline without publishing a release, run the **Release** workflow manually from the
+Actions tab. It builds with the version name you give and the current time as the version code,
+keeps the APK as a workflow artifact, and attaches it to a release only if you name one's tag.
+
+`.github/workflows/ci.yml` runs the tests and a debug build on every push to `main` and on pull
+requests.

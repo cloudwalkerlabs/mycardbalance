@@ -21,7 +21,7 @@ kotlin {
     }
 
     android {
-        namespace = "app.cardbalances.shared"
+        namespace = "dev.fanchao.mycardbalance.shared"
         compileSdk {
             version = release(libs.versions.android.compileSdk.get().toInt()) { minorApiLevel = 1 }
         }

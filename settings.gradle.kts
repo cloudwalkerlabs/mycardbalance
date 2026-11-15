@@ -1,4 +1,4 @@
-rootProject.name = "MyCardBalances"
+rootProject.name = "myCardBalance"
 
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
