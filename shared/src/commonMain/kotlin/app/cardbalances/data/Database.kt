@@ -25,8 +25,14 @@ data class CardEntity(
     val network: String,
     /** ISO 4217 code */
     val currency: String,
+    /** Valid through the end of this month, as yyyymm (e.g. 202803 for 03/28). */
+    val expiry: Int,
     @ColumnInfo(name = "created_at") val createdAt: Long,
 )
+
+/** Small key/value settings, such as how the card list is sorted. */
+@Entity(tableName = "preference")
+data class PreferenceEntity(@PrimaryKey val key: String, val value: String)
 
 /**
  * One ledger entry. For SET_BALANCE, [amountMinor] is the balance itself (an "anchor"; a card's
@@ -88,7 +94,7 @@ data class LedgerRow(
     viewName = "card_with_balance",
     value =
         """
-        SELECT card.id, card.nickname, card.last4, card.network, card.currency, card.created_at,
+        SELECT card.id, card.nickname, card.last4, card.network, card.currency, card.expiry, card.created_at,
                ledger.balance_after_minor AS balance_minor,
                ledger.created_at AS last_activity_at
         FROM card
@@ -102,13 +108,14 @@ data class CardWithBalance(
     val last4: String,
     val network: String,
     val currency: String,
+    val expiry: Int,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "balance_minor") val balanceMinor: Long,
     @ColumnInfo(name = "last_activity_at") val lastActivityAt: Long,
 )
 
 @Database(
-    entities = [CardEntity::class, CardEventEntity::class],
+    entities = [CardEntity::class, CardEventEntity::class, PreferenceEntity::class],
     views = [LedgerRow::class, CardWithBalance::class],
     version = 1,
 )

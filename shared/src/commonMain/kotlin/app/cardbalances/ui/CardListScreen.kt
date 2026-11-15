@@ -17,6 +17,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import app.cardbalances.domain.CardSort
+import app.cardbalances.domain.CardSortField
+import app.cardbalances.domain.Expiry
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.launch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -48,22 +61,35 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-data class CardListState(val cards: List<Card>, val totals: List<Pair<Currency, Long>>)
+data class CardListState(
+    val cards: List<Card>,
+    /** Per-currency totals of cards that still have money and haven't expired. */
+    val totals: List<Pair<Currency, Long>>,
+    val activeCount: Int,
+    val sort: CardSort,
+)
 
-class CardListViewModel(repository: CardRepository) : ViewModel() {
+class CardListViewModel(private val repository: CardRepository) : ViewModel() {
     /** Null while the first query is loading, so we don't flash the empty state. */
+    @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<CardListState?> =
         repository
-            .observeCards()
-            .map { cards ->
+            .observeSort()
+            .flatMapLatest { sort -> repository.observeCards(sort).map { cards -> sort to cards } }
+            .map { (sort, cards) ->
+                val today = Expiry.today()
+                val active = cards.filter { it.balanceMinor > 0 && !it.expiry.isExpired(today) }
                 val totals =
-                    cards.groupBy { it.currency.code }
+                    active.groupBy { it.currency.code }
                         .map { (_, group) -> group.first().currency to group.sumOf { it.balanceMinor } }
                         .sortedByDescending { it.second }
-                // Currencies with nothing left are noise, unless every card is used up.
-                CardListState(cards, totals.filter { it.second > 0 }.ifEmpty { totals.take(1) })
+                CardListState(cards, totals, active.size, sort)
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun setSort(sort: CardSort) {
+        viewModelScope.launch { repository.setSort(sort) }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -74,7 +100,13 @@ fun CardListScreen(viewModel: CardListViewModel, onOpenCard: (Long) -> Unit, onA
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = { LargeTopAppBar(title = { Text("My cards") }, scrollBehavior = scrollBehavior) },
+        topBar = {
+            LargeTopAppBar(
+                title = { Text("My cards") },
+                actions = { state?.let { s -> if (s.cards.size > 1) SortMenu(s.sort, viewModel::setSort) } },
+                scrollBehavior = scrollBehavior,
+            )
+        },
         floatingActionButton = {
             if (state?.cards?.isNotEmpty() == true) {
                 ExtendedFloatingActionButton(
@@ -120,6 +152,13 @@ private fun TotalsHeader(state: CardListState) {
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
             )
             Spacer(Modifier.height(4.dp))
+            if (state.totals.isEmpty()) {
+                Text(
+                    "Nothing left to spend",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
             state.totals.forEachIndexed { i, (currency, total) ->
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
@@ -137,20 +176,64 @@ private fun TotalsHeader(state: CardListState) {
                     )
                 }
             }
-            Spacer(Modifier.height(4.dp))
-            val active = state.cards.count { it.balanceMinor > 0 }
-            Text(
-                "across $active ${if (active == 1) "card" else "cards"}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
-            )
+            if (state.totals.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "across ${state.activeCount} ${if (state.activeCount == 1) "card" else "cards"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                )
+            }
         }
     }
 }
 
 @Composable
+private fun SortMenu(sort: CardSort, onSort: (CardSort) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(AppIcons.Sort, contentDescription = "Sort cards") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            MenuHeading("Sort by")
+            CardSortField.entries.forEach { field ->
+                SortItem(field.label, selected = sort.field == field) {
+                    // Each field starts in the direction people usually want for it.
+                    onSort(CardSort(field, ascending = field == CardSortField.EXPIRY))
+                }
+            }
+            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+            MenuHeading("Order")
+            SortItem(sort.field.ascendingLabel, selected = sort.ascending) { onSort(sort.copy(ascending = true)) }
+            SortItem(sort.field.descendingLabel, selected = !sort.ascending) { onSort(sort.copy(ascending = false)) }
+        }
+    }
+}
+
+@Composable
+private fun MenuHeading(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun SortItem(label: String, selected: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) },
+        trailingIcon = {
+            if (selected) Icon(AppIcons.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+        },
+        onClick = onClick,
+    )
+}
+
+@Composable
 private fun CardRow(card: Card, onClick: () -> Unit) {
-    val empty = card.balanceMinor == 0L
+    val expired = card.expiry.isExpired()
+    val empty = card.balanceMinor == 0L || expired
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = RoundedCornerShape(18.dp),
@@ -171,6 +254,7 @@ private fun CardRow(card: Card, onClick: () -> Unit) {
                     buildString {
                         if (card.network != CardNetwork.OTHER) append(card.network.label).append(" ")
                         append("•••• ").append(card.last4)
+                        if (!expired) append(" · Exp ").append(card.expiry.display)
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -185,9 +269,13 @@ private fun CardRow(card: Card, onClick: () -> Unit) {
                     color = if (empty) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    if (empty) "Used up" else card.currency.code,
+                    when {
+                        expired -> "Expired ${card.expiry.display}"
+                        card.balanceMinor == 0L -> "Used up"
+                        else -> card.currency.code
+                    },
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (expired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

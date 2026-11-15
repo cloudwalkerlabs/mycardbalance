@@ -4,13 +4,30 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Upsert
 import app.cardbalances.domain.EventType
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface CardDao {
-    @Query("SELECT * FROM card_with_balance ORDER BY balance_minor = 0, last_activity_at DESC, id DESC")
-    fun observeCards(): Flow<List<CardWithBalance>>
+    /**
+     * [sort] is a CardSortField name. Used-up cards always sort last; each CASE is NULL for every
+     * row unless its sort is the selected one, so only that one orders the list.
+     */
+    @Query(
+        """
+        SELECT * FROM card_with_balance
+        ORDER BY balance_minor = 0,
+            CASE WHEN :sort = 'EXPIRY' AND :ascending THEN expiry END ASC,
+            CASE WHEN :sort = 'EXPIRY' AND NOT :ascending THEN expiry END DESC,
+            CASE WHEN :sort = 'RECENT' AND :ascending THEN last_activity_at END ASC,
+            CASE WHEN :sort = 'RECENT' AND NOT :ascending THEN last_activity_at END DESC,
+            CASE WHEN :sort = 'BALANCE' AND :ascending THEN balance_minor END ASC,
+            CASE WHEN :sort = 'BALANCE' AND NOT :ascending THEN balance_minor END DESC,
+            id DESC
+        """
+    )
+    fun observeCards(sort: String, ascending: Boolean): Flow<List<CardWithBalance>>
 
     @Query("SELECT * FROM card_with_balance WHERE id = :id")
     fun observeCard(id: Long): Flow<CardWithBalance?>
@@ -22,15 +39,19 @@ interface CardDao {
     @Query("SELECT * FROM card_ledger WHERE card_id = :cardId ORDER BY id DESC")
     fun observeLedger(cardId: Long): Flow<List<LedgerRow>>
 
-    @Query("SELECT currency FROM card ORDER BY created_at DESC, id DESC LIMIT 1")
-    suspend fun mostRecentCurrency(): String?
-
     @Insert suspend fun insertCard(card: CardEntity): Long
 
     @Insert suspend fun insertEvent(event: CardEventEntity): Long
 
-    @Query("UPDATE card SET nickname = :nickname, last4 = :last4, network = :network, currency = :currency WHERE id = :id")
-    suspend fun updateDetails(id: Long, nickname: String, last4: String, network: String, currency: String)
+    @Query(
+        "UPDATE card SET nickname = :nickname, last4 = :last4, network = :network, currency = :currency, expiry = :expiry WHERE id = :id"
+    )
+    suspend fun updateDetails(id: Long, nickname: String, last4: String, network: String, currency: String, expiry: Int)
+
+    @Query("SELECT value FROM preference WHERE `key` = :key")
+    fun observePreference(key: String): Flow<String?>
+
+    @Upsert suspend fun putPreference(preference: PreferenceEntity)
 
     @Query("DELETE FROM card_event WHERE card_id = :id") suspend fun deleteEvents(id: Long)
 

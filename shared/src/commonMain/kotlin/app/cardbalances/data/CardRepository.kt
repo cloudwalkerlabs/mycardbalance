@@ -4,8 +4,10 @@ import app.cardbalances.domain.Card
 import app.cardbalances.domain.CardEvent
 import app.cardbalances.domain.CardIdentity
 import app.cardbalances.domain.CardNetwork
+import app.cardbalances.domain.CardSort
 import app.cardbalances.domain.Currency
 import app.cardbalances.domain.EventType
+import app.cardbalances.domain.Expiry
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlinx.coroutines.flow.Flow
@@ -18,16 +20,18 @@ import kotlinx.coroutines.flow.map
 class CardRepository(db: CardDatabase, private val clock: Clock = Clock.System) {
     private val dao = db.cardDao()
 
-    fun observeCards(): Flow<List<Card>> = dao.observeCards().map { rows -> rows.map { it.toDomain() } }
+    fun observeCards(sort: CardSort = CardSort.Default): Flow<List<Card>> =
+        dao.observeCards(sort.field.name, sort.ascending).map { rows -> rows.map { it.toDomain() } }
+
+    fun observeSort(): Flow<CardSort> = dao.observePreference(SORT_KEY).map(CardSort::decode)
+
+    suspend fun setSort(sort: CardSort) = dao.putPreference(PreferenceEntity(SORT_KEY, sort.encode()))
 
     fun observeCard(id: Long): Flow<Card?> = dao.observeCard(id).map { it?.toDomain() }
 
     fun observeEvents(cardId: Long): Flow<List<CardEvent>> = dao.observeLedger(cardId).map { rows -> rows.map { it.toDomain() } }
 
-    /** The currency of the card added most recently, used as the default for the next one. */
-    suspend fun lastUsedCurrency(): String? = dao.mostRecentCurrency()
-
-    suspend fun addCard(nickname: String, identity: CardIdentity, currency: Currency, balanceMinor: Long): Long {
+    suspend fun addCard(nickname: String, identity: CardIdentity, currency: Currency, expiry: Expiry, balanceMinor: Long): Long {
         require(balanceMinor >= 0) { "Balance can't be negative" }
         val card =
             CardEntity(
@@ -35,13 +39,14 @@ class CardRepository(db: CardDatabase, private val clock: Clock = Clock.System) 
                 last4 = identity.last4,
                 network = identity.network.name,
                 currency = currency.code,
+                expiry = expiry.yyyymm,
                 createdAt = now(),
             )
         return dao.addCard(card, balanceMinor)
     }
 
-    suspend fun updateDetails(id: Long, nickname: String, identity: CardIdentity, currency: Currency) =
-        dao.updateDetails(id, nickname.trim(), identity.last4, identity.network.name, currency.code)
+    suspend fun updateDetails(id: Long, nickname: String, identity: CardIdentity, currency: Currency, expiry: Expiry) =
+        dao.updateDetails(id, nickname.trim(), identity.last4, identity.network.name, currency.code, expiry.yyyymm)
 
     /** Records a purchase; fails rather than letting the balance go negative. Returns what's left. */
     suspend fun redeem(id: Long, amountMinor: Long, note: String?): Result<Long> {
@@ -64,6 +69,10 @@ class CardRepository(db: CardDatabase, private val clock: Clock = Clock.System) 
     private fun now() = clock.now().toEpochMilliseconds()
 
     private fun String?.clean() = this?.trim()?.ifEmpty { null }
+
+    private companion object {
+        const val SORT_KEY = "card_sort"
+    }
 }
 
 private fun CardWithBalance.toDomain() =
@@ -73,6 +82,7 @@ private fun CardWithBalance.toDomain() =
         last4 = last4,
         network = CardNetwork.entries.firstOrNull { it.name == network } ?: CardNetwork.OTHER,
         currency = Currency.of(currency),
+        expiry = Expiry.fromYyyymm(expiry),
         balanceMinor = balanceMinor,
         createdAt = Instant.fromEpochMilliseconds(createdAt),
         lastActivityAt = Instant.fromEpochMilliseconds(lastActivityAt),

@@ -51,6 +51,7 @@ import app.cardbalances.domain.CardNetwork
 import app.cardbalances.domain.CardNumber
 import app.cardbalances.domain.CardNumberResult
 import app.cardbalances.domain.Currency
+import app.cardbalances.domain.Expiry
 import app.cardbalances.domain.Money
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -63,6 +64,8 @@ class EditCardViewModel(
 ) : ViewModel() {
     var nickname by mutableStateOf("")
     var number by mutableStateOf("")
+    /** Digits only, MMYY. */
+    var expiry by mutableStateOf("")
     var currency by mutableStateOf(Currency.of(deviceCurrencyCode))
     var balance by mutableStateOf("")
     var loaded by mutableStateOf(cardId == null)
@@ -77,12 +80,12 @@ class EditCardViewModel(
 
     init {
         viewModelScope.launch {
-            if (cardId == null) {
-                repository.lastUsedCurrency()?.let { currency = Currency.of(it) }
-            } else {
+            // New cards start in the device locale's currency (set in the constructor).
+            if (cardId != null) {
                 repository.observeCard(cardId).first()?.let { card ->
                     nickname = card.nickname
                     number = card.last4
+                    expiry = card.expiry.display.filter(Char::isDigit)
                     currency = card.currency
                     storedNetwork = card.network
                 }
@@ -106,19 +109,28 @@ class EditCardViewModel(
     val numberError: String?
         get() = (numberResult as? CardNumberResult.Invalid)?.reason
 
+    val expiryError: String?
+        get() =
+            when {
+                expiry.length < 4 -> "Enter the expiry date shown on the card"
+                Expiry.parse(expiry) == null -> "Month must be 01 to 12"
+                else -> null
+            }
+
     val balanceError: String?
         get() = if (cardId == null && Money.parse(balance, currency) == null) "Enter the card's current balance" else null
 
     fun save(onSaved: () -> Unit) {
         showErrors = true
-        if (nicknameError != null || numberError != null || balanceError != null || saving) return
+        if (nicknameError != null || numberError != null || expiryError != null || balanceError != null || saving) return
+        val parsedExpiry = Expiry.parse(expiry)!!
         val identity = (numberResult as CardNumberResult.Valid).identity
         saving = true
         viewModelScope.launch {
             if (cardId == null) {
-                repository.addCard(nickname, identity, currency, Money.parse(balance, currency)!!)
+                repository.addCard(nickname, identity, currency, parsedExpiry, Money.parse(balance, currency)!!)
             } else {
-                repository.updateDetails(cardId, nickname, identity, currency)
+                repository.updateDetails(cardId, nickname, identity, currency, parsedExpiry)
             }
             onSaved()
         }
@@ -163,6 +175,7 @@ fun EditCardScreen(viewModel: EditCardViewModel, onClose: () -> Unit) {
                 nickname = vm.nickname,
                 last4 = vm.previewLast4,
                 network = vm.previewNetwork,
+                expiry = vm.expiry.takeIf { it.isNotEmpty() }?.let { d -> d.take(2).padEnd(2, '•') + "/" + d.drop(2).padEnd(2, '•') } ?: "MM/YY",
                 balance = if (adding) Money.parse(vm.balance, vm.currency)?.let { Money.format(it, vm.currency) } ?: Money.format(0, vm.currency) else null,
                 modifier = Modifier.padding(horizontal = 12.dp),
             )
@@ -189,6 +202,19 @@ fun EditCardScreen(viewModel: EditCardViewModel, onClose: () -> Unit) {
                 supportingText = {
                     Text(vm.numberError?.takeIf { vm.showErrors } ?: "Full number or last 4 digits. Only the last 4 are saved.")
                 },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = vm.expiry,
+                onValueChange = { new -> vm.expiry = new.filter(Char::isDigit).take(4) },
+                label = { Text("Expiry") },
+                placeholder = { Text("MM/YY") },
+                visualTransformation = ExpiryFormat,
+                isError = vm.showErrors && vm.expiryError != null,
+                supportingText = (vm.expiryError?.takeIf { vm.showErrors })?.let { { Text(it) } },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                 modifier = Modifier.fillMaxWidth(),
@@ -257,5 +283,19 @@ private object CardNumberGrouping : VisualTransformation {
                 override fun transformedToOriginal(offset: Int) = (offset - offset / 5).coerceIn(0, text.length)
             }
         return TransformedText(AnnotatedString(grouped), mapping)
+    }
+}
+
+/** Shows digits `MMYY` as `MM/YY`. */
+private object ExpiryFormat : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val t = text.text
+        val out = if (t.length > 2) t.take(2) + "/" + t.drop(2) else t
+        val mapping =
+            object : OffsetMapping {
+                override fun originalToTransformed(offset: Int) = if (offset > 2) offset + 1 else offset
+                override fun transformedToOriginal(offset: Int) = (if (offset > 2) offset - 1 else offset).coerceIn(0, t.length)
+            }
+        return TransformedText(AnnotatedString(out), mapping)
     }
 }

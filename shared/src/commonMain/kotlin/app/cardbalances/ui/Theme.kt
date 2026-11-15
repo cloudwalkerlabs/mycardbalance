@@ -8,6 +8,8 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 
 private val Light =
@@ -83,22 +85,50 @@ fun AppTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> U
     )
 }
 
-/** Card face gradients. A card keeps the same one for life, picked from its last four digits. */
+/**
+ * Card face colours: common card colours, each a two-stop gradient dark enough for white text.
+ * A card's colour is a hash of its last four digits, so it is stable and the Add screen preview
+ * matches the saved card.
+ */
 object CardPalette {
-    private val gradients =
+    private class Swatch(val start: Color, val end: Color)
+
+    private val swatches =
         listOf(
-            listOf(Color(0xFF14857F), Color(0xFF0B4F52)),
-            listOf(Color(0xFF3A4FA8), Color(0xFF1F2A66)),
-            listOf(Color(0xFF7A62C4), Color(0xFF4A2F8F)),
-            listOf(Color(0xFFE0674F), Color(0xFFA83A2E)),
-            listOf(Color(0xFF2F3A40), Color(0xFF121A1E)),
-            listOf(Color(0xFFC58A12), Color(0xFF7A4E00)),
+            Swatch(Color(0xFF2F6FDB), Color(0xFF1B4296)), // blue
+            Swatch(Color(0xFF5257C9), Color(0xFF2E3290)), // indigo
+            Swatch(Color(0xFF8452C9), Color(0xFF56308F)), // purple
+            Swatch(Color(0xFFD2477F), Color(0xFF962656)), // pink
+            Swatch(Color(0xFFD9483B), Color(0xFF9C2A22)), // red
+            Swatch(Color(0xFFDB7A2E), Color(0xFFA14A10)), // orange
+            Swatch(Color(0xFFB58210), Color(0xFF7A5406)), // amber
+            Swatch(Color(0xFF2E9D5B), Color(0xFF1A6B3B)), // green
+            Swatch(Color(0xFF14857F), Color(0xFF0B5A5E)), // teal
+            Swatch(Color(0xFF55606B), Color(0xFF323A42)), // graphite
         )
 
-    fun colors(last4: String): List<Color> {
-        val n = last4.toIntOrNull() ?: 0
-        return gradients[n % gradients.size]
+    /** FNV-1a over the digits: spreads neighbouring numbers across the palette. */
+    fun index(last4: String): Int {
+        var h = 0x811C9DC5.toInt()
+        for (c in last4) h = (h xor c.code) * 0x01000193
+        return ((h % swatches.size) + swatches.size) % swatches.size
     }
 
-    fun brush(last4: String) = Brush.linearGradient(colors(last4))
+    /**
+     * In dark mode the gradient stops partway so the card's darker corner doesn't sink into the
+     * near-black background; [CardOutline] adds a faint edge as well.
+     */
+    @Composable
+    fun brush(last4: String): Brush {
+        val s = swatches[index(last4)]
+        val end = if (isDarkTheme()) lerp(s.start, s.end, 0.5f) else s.end
+        return Brush.linearGradient(listOf(s.start, end))
+    }
 }
+
+/** Faint edge for card shapes in dark mode; transparent in light mode. */
+@Composable
+fun cardOutline(): Color = if (isDarkTheme()) Color.White.copy(alpha = 0.12f) else Color.Transparent
+
+@Composable
+fun isDarkTheme(): Boolean = MaterialTheme.colorScheme.background.luminance() < 0.5f

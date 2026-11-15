@@ -1,4 +1,4 @@
-# Card Balances
+# myCardBalance
 
 A small Kotlin Multiplatform app for tracking prepaid card balances by hand. Add a card with its
 balance, then record what you spend so you know what's left without logging in to the issuer's

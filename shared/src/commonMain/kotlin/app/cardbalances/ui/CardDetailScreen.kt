@@ -117,11 +117,27 @@ fun CardDetailScreen(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         val c = card ?: return@Scaffold
+        val expired = c.expiry.isExpired()
         LazyColumn(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 24.dp),
         ) {
             item {
-                CardFace(c.nickname, c.last4, c.network, Money.format(c.balanceMinor, c.currency), dimmed = c.balanceMinor == 0L)
+                CardFace(
+                    c.nickname,
+                    c.last4,
+                    c.network,
+                    Money.format(c.balanceMinor, c.currency),
+                    expiry = c.expiry.display,
+                    dimmed = c.balanceMinor == 0L || expired,
+                )
+                if (expired) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "This card expired at the end of ${c.expiry.display}.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 Spacer(Modifier.height(20.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(

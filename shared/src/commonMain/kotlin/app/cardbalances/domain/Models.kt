@@ -8,6 +8,7 @@ data class Card(
     val last4: String,
     val network: CardNetwork,
     val currency: Currency,
+    val expiry: Expiry,
     /** Derived from the card's ledger by the card_with_balance view; never stored. */
     val balanceMinor: Long,
     val createdAt: Instant,

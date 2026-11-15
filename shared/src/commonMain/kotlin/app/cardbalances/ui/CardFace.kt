@@ -1,6 +1,7 @@
 package app.cardbalances.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +39,8 @@ fun CardFace(
     network: CardNetwork,
     balance: String?,
     modifier: Modifier = Modifier,
+    /** MM/YY, shown as "Valid thru"; null hides it. */
+    expiry: String? = null,
     dimmed: Boolean = false,
 ) {
     val shape = RoundedCornerShape(20.dp)
@@ -47,6 +50,7 @@ fun CardFace(
             .aspectRatio(1.586f)
             .clip(shape)
             .background(CardPalette.brush(last4.ifEmpty { "0" }))
+            .border(1.dp, cardOutline(), shape)
             .drawBehind {
                 // Two soft circles for a bit of depth.
                 drawCircle(Color.White.copy(alpha = 0.07f), radius = size.width * 0.55f, center = Offset(size.width * 1.05f, -size.height * 0.1f))
@@ -80,13 +84,22 @@ fun CardFace(
                     )
                     Spacer(Modifier.size(4.dp))
                 }
-                Text(
-                    "••••  ••••  ••••  ${last4.padEnd(4, '•')}",
-                    color = Color.White.copy(alpha = 0.9f),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 15.sp,
-                    letterSpacing = 1.sp,
-                )
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        "••••  ••••  ••••  ${last4.padEnd(4, '•')}",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 15.sp,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (expiry != null) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("VALID THRU", color = Color.White.copy(alpha = 0.7f), fontSize = 8.sp, letterSpacing = 1.sp)
+                            Text(expiry, color = Color.White.copy(alpha = 0.9f), fontFamily = FontFamily.Monospace, fontSize = 15.sp)
+                        }
+                    }
+                }
             }
         }
     }
@@ -123,7 +136,8 @@ fun CardThumb(last4: String, modifier: Modifier = Modifier, dimmed: Boolean = fa
             .size(width = 52.dp, height = 34.dp)
             .alpha(if (dimmed) 0.35f else 1f)
             .clip(RoundedCornerShape(7.dp))
-            .background(CardPalette.brush(last4)),
+            .background(CardPalette.brush(last4))
+            .border(1.dp, cardOutline(), RoundedCornerShape(7.dp)),
         contentAlignment = Alignment.BottomEnd,
     ) {
         Box(

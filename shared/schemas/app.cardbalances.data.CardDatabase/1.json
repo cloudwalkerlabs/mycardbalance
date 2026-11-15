@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "e6ac2ebd35efb168ce83bc86d3a6c1ad",
+    "identityHash": "d591790fd49de2f8742433ca80057a4e",
     "entities": [
       {
         "tableName": "card",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `nickname` TEXT NOT NULL, `last4` TEXT NOT NULL, `network` TEXT NOT NULL, `currency` TEXT NOT NULL, `created_at` INTEGER NOT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `nickname` TEXT NOT NULL, `last4` TEXT NOT NULL, `network` TEXT NOT NULL, `currency` TEXT NOT NULL, `expiry` INTEGER NOT NULL, `created_at` INTEGER NOT NULL)",
         "fields": [
           {
             "fieldPath": "id",
@@ -36,6 +36,12 @@
             "fieldPath": "currency",
             "columnName": "currency",
             "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expiry",
+            "columnName": "expiry",
+            "affinity": "INTEGER",
             "notNull": true
           },
           {
@@ -123,6 +129,30 @@
             ]
           }
         ]
+      },
+      {
+        "tableName": "preference",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
       }
     ],
     "views": [
@@ -132,12 +162,12 @@
       },
       {
         "viewName": "card_with_balance",
-        "createSql": "CREATE VIEW `${VIEW_NAME}` AS SELECT card.id, card.nickname, card.last4, card.network, card.currency, card.created_at,\n               ledger.balance_after_minor AS balance_minor,\n               ledger.created_at AS last_activity_at\n        FROM card\n        JOIN card_ledger AS ledger ON ledger.card_id = card.id\n        WHERE ledger.id = (SELECT MAX(e.id) FROM card_event AS e WHERE e.card_id = card.id)"
+        "createSql": "CREATE VIEW `${VIEW_NAME}` AS SELECT card.id, card.nickname, card.last4, card.network, card.currency, card.expiry, card.created_at,\n               ledger.balance_after_minor AS balance_minor,\n               ledger.created_at AS last_activity_at\n        FROM card\n        JOIN card_ledger AS ledger ON ledger.card_id = card.id\n        WHERE ledger.id = (SELECT MAX(e.id) FROM card_event AS e WHERE e.card_id = card.id)"
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e6ac2ebd35efb168ce83bc86d3a6c1ad')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd591790fd49de2f8742433ca80057a4e')"
     ]
   }
 }
