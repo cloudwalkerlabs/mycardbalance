@@ -1,5 +1,6 @@
 package app.cardbalances.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -67,6 +68,8 @@ class CardDetailViewModel(private val repository: CardRepository, val cardId: Lo
 
     suspend fun setBalance(balanceMinor: Long, note: String) = repository.setBalance(cardId, balanceMinor, note)
 
+    suspend fun deleteEvent(eventId: Long): Result<Unit> = repository.deleteEvent(eventId)
+
     fun delete(onDone: () -> Unit) {
         viewModelScope.launch {
             repository.deleteCard(cardId)
@@ -88,6 +91,7 @@ fun CardDetailScreen(
     var sheet by remember { mutableStateOf<AmountSheetMode?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var eventToDelete by remember { mutableStateOf<CardEvent?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -167,10 +171,15 @@ fun CardDetailScreen(
                     Text("Pay with ${wallet.walletName}")
                 }
                 Spacer(Modifier.height(28.dp))
-                Text("History", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
+                Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(bottom = 4.dp)) {
+                    Text("History", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    if (events.size > 1) {
+                        Text("Tap an entry to delete it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
             items(events, key = { it.id }) { e ->
-                EventRow(e, c)
+                EventRow(e, c, onClick = { eventToDelete = e })
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             }
         }
@@ -194,6 +203,44 @@ fun CardDetailScreen(
         )
     }
 
+    val target = eventToDelete
+    if (target != null && c != null) {
+        val isStart = events.lastOrNull()?.id == target.id
+        AlertDialog(
+            onDismissRequest = { eventToDelete = null },
+            title = { Text(if (isStart) "Starting balance" else "Delete this entry?") },
+            text = {
+                Text(
+                    if (isStart) {
+                        "This is the balance the card was added with, so it can't be deleted. Use Set balance to correct the current balance."
+                    } else {
+                        val what = if (target.type == EventType.REDEEM) "Spent" else "Balance updated"
+                        "$what ${Money.format(target.deltaMinor, c.currency, showSign = true)}" +
+                            (target.note?.let { " ($it)" } ?: "") +
+                            ", ${formatTimestamp(target.createdAt)}. Balances after it will be recalculated."
+                    }
+                )
+            },
+            confirmButton = {
+                if (isStart) {
+                    TextButton(onClick = { eventToDelete = null }) { Text("OK") }
+                } else {
+                    TextButton(
+                        onClick = {
+                            eventToDelete = null
+                            scope.launch {
+                                viewModel.deleteEvent(target.id).onFailure { snackbar.showSnackbar(it.message ?: "Couldn't delete the entry") }
+                            }
+                        }
+                    ) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            dismissButton = { if (!isStart) TextButton(onClick = { eventToDelete = null }) { Text("Cancel") } },
+        )
+    }
+
     if (confirmDelete && c != null) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
@@ -210,13 +257,16 @@ fun CardDetailScreen(
 }
 
 @Composable
-private fun EventRow(e: CardEvent, card: Card) {
+private fun EventRow(e: CardEvent, card: Card, onClick: () -> Unit) {
     val (icon, title) =
         when (e.type) {
             EventType.REDEEM -> AppIcons.Receipt to "Spent"
             EventType.SET_BALANCE -> AppIcons.Edit to "Balance updated"
         }
-    Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClickLabel = "Delete entry", onClick = onClick).padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.size(40.dp)) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(20.dp))

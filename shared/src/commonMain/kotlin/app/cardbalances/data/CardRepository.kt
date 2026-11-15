@@ -66,6 +66,14 @@ class CardRepository(db: CardDatabase, private val clock: Clock = Clock.System) 
 
     suspend fun deleteCard(id: Long) = dao.deleteCard(id)
 
+    /** Deletes one history entry, or fails with a message saying why it can't be. */
+    suspend fun deleteEvent(eventId: Long): Result<Unit> =
+        try {
+            Result.success(dao.deleteEvent(eventId))
+        } catch (e: DeleteEventException) {
+            Result.failure(e)
+        }
+
     private fun now() = clock.now().toEpochMilliseconds()
 
     private fun String?.clean() = this?.trim()?.ifEmpty { null }

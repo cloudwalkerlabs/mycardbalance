@@ -122,4 +122,42 @@ class CardRepositoryTest {
         repo.updateDetails(id, "A", CardIdentity("1111", CardNetwork.OTHER), nzd, Expiry(2029, 12))
         assertEquals(Expiry(2029, 12), repo.observeCard(id).first()!!.expiry)
     }
+
+    @Test fun deletingAnEntryRecalculatesLaterBalances() = runTest {
+        val id = repo.addCard("Prezzy", CardIdentity("1111", CardNetwork.VISA), nzd, exp, 100_00)
+        repo.redeem(id, 30_00, "Groceries")
+        repo.redeem(id, 10_00, "Coffee")
+        val groceries = repo.observeEvents(id).first().first { it.note == "Groceries" }
+
+        assertTrue(repo.deleteEvent(groceries.id).isSuccess)
+        assertEquals(90_00L, repo.observeCard(id).first()!!.balanceMinor)
+        assertEquals(listOf(90_00L, 100_00L), repo.observeEvents(id).first().map { it.balanceAfterMinor })
+    }
+
+    @Test fun deletingALaterUpdateFallsBackToTheEarlierOne() = runTest {
+        val id = repo.addCard("Prezzy", CardIdentity("1111", CardNetwork.VISA), nzd, exp, 100_00)
+        repo.setBalance(id, 60_00, null)
+        repo.redeem(id, 5_00, null)
+        val update = repo.observeEvents(id).first().first { it.type == EventType.SET_BALANCE && it.balanceAfterMinor == 60_00L }
+        repo.deleteEvent(update.id).getOrThrow()
+        assertEquals(95_00L, repo.observeCard(id).first()!!.balanceMinor)
+    }
+
+    @Test fun startingBalanceCantBeDeleted() = runTest {
+        val id = repo.addCard("Prezzy", CardIdentity("1111", CardNetwork.VISA), nzd, exp, 100_00)
+        val start = repo.observeEvents(id).first().single()
+        assertTrue(repo.deleteEvent(start.id).isFailure)
+        assertEquals(100_00L, repo.observeCard(id).first()!!.balanceMinor)
+    }
+
+    @Test fun deletionThatWouldGoNegativeIsRolledBack() = runTest {
+        val id = repo.addCard("Small", CardIdentity("1111", CardNetwork.OTHER), nzd, exp, 10_00)
+        repo.redeem(id, 10_00, null)
+        repo.setBalance(id, 50_00, "Top up")
+        repo.redeem(id, 40_00, null)
+        val topUp = repo.observeEvents(id).first().first { it.note == "Top up" }
+        assertTrue(repo.deleteEvent(topUp.id).isFailure) // would leave 10 - 10 - 40 = -40
+        assertEquals(4, repo.observeEvents(id).first().size)
+        assertEquals(10_00L, repo.observeCard(id).first()!!.balanceMinor)
+    }
 }

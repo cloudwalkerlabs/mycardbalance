@@ -86,6 +86,29 @@ interface CardDao {
         }
     }
 
+    @Query("SELECT card_id FROM card_event WHERE id = :eventId") suspend fun cardOfEvent(eventId: Long): Long?
+
+    @Query("SELECT MIN(id) FROM card_event WHERE card_id = :cardId") suspend fun firstEventId(cardId: Long): Long?
+
+    @Query("DELETE FROM card_event WHERE id = :eventId") suspend fun deleteEventRow(eventId: Long)
+
+    /** Lowest running balance anywhere in the card's history, per the card_ledger view. */
+    @Query("SELECT IFNULL(MIN(balance_after_minor), 0) FROM card_ledger WHERE card_id = :cardId")
+    suspend fun lowestBalance(cardId: Long): Long
+
+    /**
+     * Removes one history entry; balances after it recalculate on their own. The card's first
+     * entry (its starting balance) can't be removed, and a removal that would take any running
+     * balance below zero is rolled back by throwing inside the transaction.
+     */
+    @Transaction
+    suspend fun deleteEvent(eventId: Long) {
+        val cardId = cardOfEvent(eventId) ?: return
+        if (firstEventId(cardId) == eventId) throw DeleteEventException("The starting balance can't be deleted. Use Set balance to change it.")
+        deleteEventRow(eventId)
+        if (lowestBalance(cardId) < 0) throw DeleteEventException("Deleting this would take the balance below zero.")
+    }
+
     @Transaction
     suspend fun deleteCard(id: Long) {
         deleteEvents(id)
@@ -94,3 +117,5 @@ interface CardDao {
 }
 
 class OverspendException(val balanceMinor: Long) : IllegalArgumentException("That's more than the balance left on the card")
+
+class DeleteEventException(message: String) : IllegalStateException(message)
