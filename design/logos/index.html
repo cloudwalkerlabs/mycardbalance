@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card Balances Icons</title>
+<style>
+  :root { --bg:#F7F7FA; --fg:#1C1B1F; --muted:#5F5D66; --panel:#FFFFFF; --line:#E3E1EA; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#141317; --fg:#E6E1E6; --muted:#A8A4AE; --panel:#1F1E23; --line:#34323A; } }
+  :root[data-theme="dark"] { --bg:#141317; --fg:#E6E1E6; --muted:#A8A4AE; --panel:#1F1E23; --line:#34323A; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; padding:24px 16px; }
+  header { max-width:1000px; margin:0 auto 20px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; }
+  h1 { font-size:22px; margin:0; }
+  .toggle button { font:inherit; padding:6px 12px; border:1px solid var(--line); background:var(--panel); color:var(--fg); border-radius:999px; cursor:pointer; }
+  .toggle button[aria-pressed="true"] { background:var(--fg); color:var(--bg); }
+  main { max-width:1000px; margin:0 auto; display:grid; gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:20px; padding:20px; }
+  .card h2 { margin:0 0 4px; font-size:17px; }
+  .card p { margin:0 0 14px; color:var(--muted); }
+  .row { display:flex; flex-wrap:wrap; gap:20px; align-items:flex-end; }
+  figure { margin:0; text-align:center; font-size:12px; color:var(--muted); }
+  /* Adaptive icon: 108dp layer, 72dp visible viewport -> show the middle 2/3 */
+  .ic { position:relative; overflow:hidden; margin:0 auto 6px; }
+  .ic img { position:absolute; width:150%; height:150%; left:-25%; top:-25%; }
+  .circle { border-radius:50%; }
+  .squircle { border-radius:30%; }
+  .s192 { width:192px; height:192px; } .s48 { width:48px; height:48px; }
+  .sw { display:inline-flex; gap:6px; align-items:center; margin-right:10px; font-family:ui-monospace, monospace; font-size:12px; color:var(--muted); }
+  .sw i { width:14px; height:14px; border-radius:4px; border:1px solid var(--line); display:inline-block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>My Card Balances: icon concepts</h1>
+  <div class="toggle" role="group" aria-label="Theme">
+    <button data-t="auto" aria-pressed="true">Auto</button>
+    <button data-t="light" aria-pressed="false">Light</button>
+    <button data-t="dark" aria-pressed="false">Dark</button>
+  </div>
+</header>
+<main id="list"></main>
+<script>
+const concepts = [
+  {n:1, name:"Balance Meter", desc:"Two stacked cards; the front card carries a gauge arc showing how much balance is left.", colors:["#14857F","#0B5A5E","#8FDCD2","#FFFFFF","#F6B73C","#0E716D"]},
+  {n:2, name:"Spend Down", desc:"A card with a gold coin bearing a minus sign: deducting spends from the card.", colors:["#7A62C4","#5B3FA8","#EFE6FF","#C9B6F5","#FFC542","#F0A81C"]},
+  {n:3, name:"Fill Level", desc:"The card itself is a container; a wavy green fill shows the remaining balance.", colors:["#E4F3EA","#14553A","#2E9D68","#FFFFFF"]},
+  {n:4, name:"Card Tag", desc:"A card shaped like a gift tag, with four dots standing in for the last 4 digits.", colors:["#FF8A65","#EE5A45","#FFF6EF","#F9AE96","#E2553F"]},
+];
+const list = document.getElementById("list");
+for (const c of concepts) {
+  const fig = (shape, size) => `<figure><div class="ic ${shape} s${size}"><img src="concept-${c.n}.svg" alt="Concept ${c.n} ${shape} ${size}px"></div>${shape} ${size}</figure>`;
+  list.insertAdjacentHTML("beforeend", `<section class="card">
+    <h2>Concept ${c.n}: ${c.name}</h2>
+    <p>${c.desc}</p>
+    <div class="row">${fig("circle",192)}${fig("squircle",192)}${fig("circle",48)}${fig("squircle",48)}</div>
+    <div style="margin-top:14px">${c.colors.map(h=>`<span class="sw"><i style="background:${h}"></i>${h}</span>`).join("")}</div>
+  </section>`);
+}
+const btns = document.querySelectorAll(".toggle button");
+function setTheme(t){
+  if (t === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", t);
+  btns.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.t === t)));
+  try { localStorage.setItem("iconTheme", t); } catch (e) {}
+}
+btns.forEach(b => b.addEventListener("click", () => setTheme(b.dataset.t)));
+try { const t = localStorage.getItem("iconTheme"); if (t) setTheme(t); } catch (e) {}
+</script>
+</body>
+</html>
