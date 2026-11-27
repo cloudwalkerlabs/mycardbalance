@@ -1,6 +1,8 @@
 package dev.fanchao.mycardbalance
 
 import androidx.room.Room
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import java.nio.file.Files
 import dev.fanchao.mycardbalance.data.CardDatabase
 import dev.fanchao.mycardbalance.data.CardRepository
 import dev.fanchao.mycardbalance.data.configure
@@ -13,6 +15,7 @@ import dev.fanchao.mycardbalance.domain.EventType
 import dev.fanchao.mycardbalance.domain.Expiry
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
@@ -28,6 +31,42 @@ class CardRepositoryTest {
     private val exp = Expiry(2030, 1)
 
     @AfterTest fun close() = db.close()
+
+    @Test fun migratesExistingCardsAndHistoryBeforeRecordingRefunds() = runTest {
+        val path = Files.createTempFile("cardbalance-v1", ".db")
+        try {
+            BundledSQLiteDriver().open(path.toString()).use { connection ->
+                val schema = checkNotNull(javaClass.getResource("/schema-v1.sql")).readText()
+                schema.split(';').filter { it.isNotBlank() }.forEach { sql ->
+                    connection.prepare(sql).use { it.step() }
+                }
+                listOf(
+                    "INSERT INTO card VALUES (1, 'Existing', '1111', 'VISA', 'NZD', 203001, 1)",
+                    "INSERT INTO card_event VALUES (1, 1, 'SET_BALANCE', 10000, NULL, 1)",
+                    "INSERT INTO card_event VALUES (2, 1, 'REDEEM', 3000, 'Groceries', 2)",
+                    "INSERT INTO card_event VALUES (3, 1, 'SET_BALANCE', 5000, 'Checked', 3)",
+                    "INSERT INTO card_event VALUES (4, 1, 'REDEEM', 1000, NULL, 4)",
+                    "INSERT INTO preference VALUES ('card_sort', 'BALANCE:DESC')",
+                ).forEach { sql -> connection.prepare(sql).use { it.step() } }
+            }
+            val migrated = Room.databaseBuilder<CardDatabase>(path.toString()).configure()
+            try {
+                val repository = CardRepository(migrated)
+                assertEquals(CardSort(CardSortField.BALANCE, false), repository.observeSort().first())
+                assertEquals(40_00L, repository.observeCard(1).first()!!.balanceMinor)
+                assertEquals(listOf(40_00L, 50_00L, 70_00L, 100_00L), repository.observeEvents(1).first().map { it.balanceAfterMinor })
+                assertEquals("Groceries", repository.observeEvents(1).first().first { it.id == 2L }.note)
+                assertEquals(55_00L, repository.refund(1, 15_00, "Returned item").getOrThrow())
+                assertEquals(55_00L, repository.observeCard(1).first()!!.balanceMinor)
+            } finally {
+                migrated.close()
+            }
+        } finally {
+            Files.deleteIfExists(path)
+            Files.deleteIfExists(path.resolveSibling("${path.fileName}-wal"))
+            Files.deleteIfExists(path.resolveSibling("${path.fileName}-shm"))
+        }
+    }
 
     @Test fun initialBalanceIsAnUpdateEvent() = runTest {
         val id = repo.addCard("Prezzy", CardIdentity("1111", CardNetwork.VISA), nzd, exp, 100_00)
@@ -70,6 +109,62 @@ class CardRepositoryTest {
         assertEquals(1, repo.observeEvents(id).first().size)
         assertEquals(0L, repo.redeem(id, 10_00, null).getOrThrow())
         assertIs<IllegalStateException>(repo.redeem(999, 1, null).exceptionOrNull())
+    }
+
+    @Test fun refundsAddToTheLedgerBetweenPurchasesAndBalanceUpdates() = runTest {
+        val id = repo.addCard("Prezzy", CardIdentity("1111", CardNetwork.VISA), nzd, exp, 100_00)
+        repo.redeem(id, 30_00, null).getOrThrow()
+        assertEquals(85_00L, repo.refund(id, 15_00, "  Returned item  ").getOrThrow())
+        repo.redeem(id, 5_00, null).getOrThrow()
+        repo.setBalance(id, 60_00, null)
+        repo.refund(id, 10_00, "  ").getOrThrow()
+        repo.redeem(id, 2_50, null).getOrThrow()
+
+        val history = repo.observeEvents(id).first().reversed()
+        assertEquals(listOf(100_00L, 70_00L, 85_00L, 80_00L, 60_00L, 70_00L, 67_50L), history.map { it.balanceAfterMinor })
+        assertEquals(listOf(100_00L, -30_00L, 15_00L, -5_00L, -20_00L, 10_00L, -2_50L), history.map { it.deltaMinor })
+        assertEquals(EventType.REFUND, history[2].type)
+        assertEquals(15_00L, history[2].amountMinor)
+        assertEquals("Returned item", history[2].note)
+        assertNull(history[5].note)
+        assertEquals(67_50L, repo.observeCard(id).first()!!.balanceMinor)
+    }
+
+    @Test fun refundWorksOnEmptyCardsWithoutAPriorPurchase() = runTest {
+        val id = repo.addCard("Empty", CardIdentity("1111", CardNetwork.OTHER), nzd, exp, 0)
+        val other = repo.addCard("Other", CardIdentity("2222", CardNetwork.OTHER), nzd, exp, 10_00)
+        assertEquals(20_00L, repo.refund(id, 20_00, null).getOrThrow())
+        assertEquals(20_00L, repo.observeCard(id).first()!!.balanceMinor)
+        assertEquals(10_00L, repo.observeCard(other).first()!!.balanceMinor)
+    }
+
+    @Test fun rejectsInvalidRefundsWithoutRecordingAnEntry() = runTest {
+        val id = repo.addCard("A", CardIdentity("1111", CardNetwork.OTHER), nzd, exp, 1)
+        assertFailsWith<IllegalArgumentException> { repo.refund(id, 0, null) }
+        assertFailsWith<IllegalArgumentException> { repo.refund(id, -1, null) }
+        assertTrue(repo.refund(id, Long.MAX_VALUE, null).isFailure)
+        assertIs<IllegalStateException>(repo.refund(999, 1, null).exceptionOrNull())
+        assertEquals(1, repo.observeEvents(id).first().size)
+    }
+
+    @Test fun deletingARefundRecalculatesLaterBalances() = runTest {
+        val id = repo.addCard("A", CardIdentity("1111", CardNetwork.OTHER), nzd, exp, 100_00)
+        repo.refund(id, 20_00, null).getOrThrow()
+        repo.redeem(id, 30_00, null).getOrThrow()
+        val refund = repo.observeEvents(id).first().first { it.type == EventType.REFUND }
+        repo.deleteEvent(refund.id).getOrThrow()
+        assertEquals(listOf(70_00L, 100_00L), repo.observeEvents(id).first().map { it.balanceAfterMinor })
+    }
+
+    @Test fun deletingARefundThatFundedAPurchaseIsRolledBack() = runTest {
+        val id = repo.addCard("A", CardIdentity("1111", CardNetwork.OTHER), nzd, exp, 0)
+        repo.refund(id, 20_00, null).getOrThrow()
+        repo.redeem(id, 15_00, null).getOrThrow()
+        repo.setBalance(id, 10_00, null) // even a later anchor must not hide a negative historical balance
+        val refund = repo.observeEvents(id).first().first { it.type == EventType.REFUND }
+        assertTrue(repo.deleteEvent(refund.id).isFailure)
+        assertEquals(4, repo.observeEvents(id).first().size)
+        assertEquals(10_00L, repo.observeCard(id).first()!!.balanceMinor)
     }
 
     @Test fun setBalanceToSameValueRecordsNothing() = runTest {

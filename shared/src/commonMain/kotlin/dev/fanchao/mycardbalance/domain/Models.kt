@@ -18,6 +18,8 @@ data class Card(
 enum class EventType {
     /** Money spent with the card. Amount is what was spent. */
     REDEEM,
+    /** Money returned to the card. Amount is what was refunded. */
+    REFUND,
     /** The balance was set to a known figure, including when the card was added. Amount is the balance. */
     SET_BALANCE,
 }
@@ -26,7 +28,7 @@ enum class EventType {
 data class CardEvent(
     val id: Long,
     val type: EventType,
-    /** As recorded: the balance for SET_BALANCE, the amount spent for REDEEM. */
+    /** As recorded: the balance for SET_BALANCE, the amount spent for REDEEM or returned for REFUND. */
     val amountMinor: Long,
     /** Signed change this event made to the balance. */
     val deltaMinor: Long,

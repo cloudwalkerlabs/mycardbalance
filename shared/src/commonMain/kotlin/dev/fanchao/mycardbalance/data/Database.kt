@@ -1,5 +1,6 @@
 package dev.fanchao.mycardbalance.data
 
+import androidx.room.AutoMigration
 import androidx.room.ColumnInfo
 import androidx.room.ConstructedBy
 import androidx.room.Database
@@ -36,7 +37,7 @@ data class PreferenceEntity(@PrimaryKey val key: String, val value: String)
 
 /**
  * One ledger entry. For SET_BALANCE, [amountMinor] is the balance itself (an "anchor"; a card's
- * first event is always one); for REDEEM it is the amount spent. Balances are derived from these
+ * first event is always one); for REDEEM or REFUND it is the amount spent or returned. Balances are derived from these
  * rows only.
  */
 @Entity(
@@ -56,7 +57,7 @@ data class CardEventEntity(
 /**
  * Every event with the balance after it. Events are replayed in id order (the order they were
  * recorded): each anchor starts a new group `grp`, and within a group the balance is the anchor
- * amount minus the redemptions so far.
+ * amount plus refunds minus redemptions so far.
  */
 @DatabaseView(
     viewName = "card_ledger",
@@ -71,7 +72,7 @@ data class CardEventEntity(
                        OVER (PARTITION BY card_id, grp ORDER BY id) AS balance_after_minor
             FROM (
                 SELECT *,
-                       SUM(CASE WHEN type = 'REDEEM' THEN 0 ELSE 1 END)
+                       SUM(CASE WHEN type = 'SET_BALANCE' THEN 1 ELSE 0 END)
                            OVER (PARTITION BY card_id ORDER BY id) AS grp
                 FROM card_event
             )
@@ -117,7 +118,8 @@ data class CardWithBalance(
 @Database(
     entities = [CardEntity::class, CardEventEntity::class, PreferenceEntity::class],
     views = [LedgerRow::class, CardWithBalance::class],
-    version = 1,
+    version = 2,
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
 )
 @ConstructedBy(CardDatabaseConstructor::class)
 abstract class CardDatabase : RoomDatabase() {
