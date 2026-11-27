@@ -66,6 +66,8 @@ class CardDetailViewModel(private val repository: CardRepository, val cardId: Lo
 
     suspend fun redeem(amountMinor: Long, note: String): Result<Long> = repository.redeem(cardId, amountMinor, note)
 
+    suspend fun refund(amountMinor: Long, note: String): Result<Long> = repository.refund(cardId, amountMinor, note)
+
     suspend fun setBalance(balanceMinor: Long, note: String) = repository.setBalance(cardId, balanceMinor, note)
 
     suspend fun deleteEvent(eventId: Long): Result<Unit> = repository.deleteEvent(eventId)
@@ -153,11 +155,17 @@ fun CardDetailScreen(
                         Spacer(Modifier.size(8.dp))
                         Text("Spend")
                     }
-                    OutlinedButton(onClick = { sheet = AmountSheetMode.SetBalance }, modifier = Modifier.weight(1f).height(48.dp)) {
-                        Icon(AppIcons.Edit, contentDescription = null, Modifier.size(18.dp))
+                    OutlinedButton(onClick = { sheet = AmountSheetMode.Refund }, modifier = Modifier.weight(1f).height(48.dp)) {
+                        Icon(AppIcons.Add, contentDescription = null, Modifier.size(18.dp))
                         Spacer(Modifier.size(8.dp))
-                        Text("Set balance")
+                        Text("Refund")
                     }
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = { sheet = AmountSheetMode.SetBalance }, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                    Icon(AppIcons.Edit, contentDescription = null, Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text("Set balance")
                 }
                 Spacer(Modifier.height(12.dp))
                 FilledTonalButton(
@@ -194,6 +202,7 @@ fun CardDetailScreen(
             onSubmit = { mode, amount, note ->
                 when (mode) {
                     AmountSheetMode.Redeem -> viewModel.redeem(amount, note).exceptionOrNull()?.message
+                    AmountSheetMode.Refund -> viewModel.refund(amount, note).exceptionOrNull()?.message
                     AmountSheetMode.SetBalance -> {
                         viewModel.setBalance(amount, note)
                         null
@@ -214,7 +223,11 @@ fun CardDetailScreen(
                     if (isStart) {
                         "This is the balance the card was added with, so it can't be deleted. Use Set balance to correct the current balance."
                     } else {
-                        val what = if (target.type == EventType.REDEEM) "Spent" else "Balance updated"
+                        val what = when (target.type) {
+                            EventType.REDEEM -> "Spent"
+                            EventType.REFUND -> "Refunded"
+                            EventType.SET_BALANCE -> "Balance updated"
+                        }
                         "$what ${Money.format(target.deltaMinor, c.currency, showSign = true)}" +
                             (target.note?.let { " ($it)" } ?: "") +
                             ", ${formatTimestamp(target.createdAt)}. Balances after it will be recalculated."
@@ -261,6 +274,7 @@ private fun EventRow(e: CardEvent, card: Card, onClick: () -> Unit) {
     val (icon, title) =
         when (e.type) {
             EventType.REDEEM -> AppIcons.Receipt to "Spent"
+            EventType.REFUND -> AppIcons.Add to "Refunded"
             EventType.SET_BALANCE -> AppIcons.Edit to "Balance updated"
         }
     Row(

@@ -59,6 +59,17 @@ class CardRepository(db: CardDatabase, private val clock: Clock = Clock.System) 
         }
     }
 
+    /** Records money returned to a card. Returns the new balance. */
+    suspend fun refund(id: Long, amountMinor: Long, note: String?): Result<Long> {
+        require(amountMinor > 0) { "Amount must be positive" }
+        return try {
+            dao.refund(id, amountMinor, note.clean(), now())?.let { Result.success(it) }
+                ?: Result.failure(IllegalStateException("Card not found"))
+        } catch (e: RefundOverflowException) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun setBalance(id: Long, balanceMinor: Long, note: String?) {
         require(balanceMinor >= 0) { "Balance can't be negative" }
         dao.setBalance(id, balanceMinor, note.clean(), now())

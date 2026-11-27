@@ -8,8 +8,8 @@ website.
   with the Luhn algorithm and used to detect Visa/Mastercard/Amex, then discarded.
 - Each card has its own currency. Amounts are stored as integer minor units (cents).
 - Every change is a ledger entry: a balance update (including the card's starting balance) or a
-  purchase ("Spend"). Balances are never stored: the `card_ledger` SQL view derives them as the
-  latest update minus the purchases after it, so a balance can't disagree with its history.
+  purchase ("Spend"), or money returned ("Refund"). Balances are never stored: the `card_ledger` SQL view derives them as the
+  latest update plus refunds minus the purchases after it, so a balance can't disagree with its history.
 - "Pay with Google Wallet" opens the Wallet app, or its Play Store page if it isn't installed.
   Wallet has no public API to preselect a card, so the app shows the last 4 digits to pick
   the right card.

@@ -77,6 +77,15 @@ interface CardDao {
         return balance - amountMinor
     }
 
+    /** Records money returned to the card, in the same transaction as reading its balance. */
+    @Transaction
+    suspend fun refund(cardId: Long, amountMinor: Long, note: String?, now: Long): Long? {
+        val balance = balanceOf(cardId) ?: return null
+        if (amountMinor > Long.MAX_VALUE - balance) throw RefundOverflowException()
+        insertEvent(CardEventEntity(cardId = cardId, type = EventType.REFUND.name, amountMinor = amountMinor, note = note, createdAt = now))
+        return balance + amountMinor
+    }
+
     /** Anchors the balance to a known figure. Skipped when it already matches. */
     @Transaction
     suspend fun setBalance(cardId: Long, balanceMinor: Long, note: String?, now: Long) {
@@ -119,3 +128,5 @@ interface CardDao {
 class OverspendException(val balanceMinor: Long) : IllegalArgumentException("That's more than the balance left on the card")
 
 class DeleteEventException(message: String) : IllegalStateException(message)
+
+class RefundOverflowException : IllegalArgumentException("The refund would make the balance too large")

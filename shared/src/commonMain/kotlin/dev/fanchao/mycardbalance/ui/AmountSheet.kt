@@ -35,7 +35,7 @@ import dev.fanchao.mycardbalance.domain.Card
 import dev.fanchao.mycardbalance.domain.Money
 import kotlinx.coroutines.launch
 
-enum class AmountSheetMode { Redeem, SetBalance }
+enum class AmountSheetMode { Redeem, Refund, SetBalance }
 
 /**
  * Bottom sheet for entering an amount. [onSubmit] returns an error message to show, or null when
@@ -64,10 +64,12 @@ fun AmountSheet(
     val after =
         when (mode) {
             AmountSheetMode.Redeem -> parsed?.let { card.balanceMinor - it }
+            AmountSheetMode.Refund -> parsed?.takeIf { it <= Long.MAX_VALUE - card.balanceMinor }?.let { card.balanceMinor + it }
             AmountSheetMode.SetBalance -> parsed
         }
     val overspend = mode == AmountSheetMode.Redeem && after != null && after < 0
-    val valid = parsed != null && !overspend && (mode == AmountSheetMode.SetBalance || parsed > 0)
+    val overflow = mode == AmountSheetMode.Refund && parsed != null && after == null
+    val valid = parsed != null && !overspend && !overflow && (mode == AmountSheetMode.SetBalance || parsed > 0)
 
     fun submit() {
         if (!valid) return
@@ -84,7 +86,11 @@ fun AmountSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp).imePadding()) {
             Text(
-                if (mode == AmountSheetMode.Redeem) "Record a purchase" else "Set balance",
+                when (mode) {
+                    AmountSheetMode.Redeem -> "Record a purchase"
+                    AmountSheetMode.Refund -> "Record a refund"
+                    AmountSheetMode.SetBalance -> "Set balance"
+                },
                 style = MaterialTheme.typography.titleLarge,
             )
             Spacer(Modifier.height(4.dp))
@@ -101,9 +107,13 @@ fun AmountSheet(
                     error = null
                 },
                 currency = currency,
-                label = if (mode == AmountSheetMode.Redeem) "Amount spent" else "New balance",
-                error = error ?: if (overspend) "Only ${Money.format(card.balanceMinor, currency)} left on this card" else null,
-                supporting = after?.takeIf { !overspend && mode == AmountSheetMode.Redeem }?.let { "Balance after: ${Money.format(it, currency)}" }
+                label = when (mode) {
+                    AmountSheetMode.Redeem -> "Amount spent"
+                    AmountSheetMode.Refund -> "Amount refunded"
+                    AmountSheetMode.SetBalance -> "New balance"
+                },
+                error = error ?: if (overspend) "Only ${Money.format(card.balanceMinor, currency)} left on this card" else if (overflow) "The refund would make the balance too large" else null,
+                supporting = after?.takeIf { !overspend && mode != AmountSheetMode.SetBalance }?.let { "Balance after: ${Money.format(it, currency)}" }
                     ?: after?.takeIf { mode == AmountSheetMode.SetBalance && it != card.balanceMinor }?.let {
                         val diff = it - card.balanceMinor
                         "Change: ${Money.format(diff, currency, showSign = true)}"
@@ -124,7 +134,11 @@ fun AmountSheet(
                 value = note,
                 onValueChange = { note = it.take(60) },
                 label = { Text("Note (optional)") },
-                placeholder = { Text(if (mode == AmountSheetMode.Redeem) "e.g. Groceries" else "e.g. Checked receipt") },
+                placeholder = { Text(when (mode) {
+                    AmountSheetMode.Redeem -> "e.g. Groceries"
+                    AmountSheetMode.Refund -> "e.g. Returned item"
+                    AmountSheetMode.SetBalance -> "e.g. Checked receipt"
+                }) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { submit() }),
@@ -132,7 +146,11 @@ fun AmountSheet(
             )
             Spacer(Modifier.height(20.dp))
             Button(onClick = ::submit, enabled = valid, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Text(if (mode == AmountSheetMode.Redeem) "Deduct" else "Save balance")
+                Text(when (mode) {
+                    AmountSheetMode.Redeem -> "Deduct"
+                    AmountSheetMode.Refund -> "Add refund"
+                    AmountSheetMode.SetBalance -> "Save balance"
+                })
             }
         }
     }
